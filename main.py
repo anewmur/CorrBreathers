@@ -10,7 +10,7 @@ from correlations import (
     compute_localization_fraction,
 )
 from detector import evaluate_breather_candidate
-from init_conditions import create_initial_ensemble
+from init_conditions import create_initial_ensemble, validate_initial_covariance
 from integrator import velocity_verlet_step
 from io_utils import (
     ensure_output_directory,
@@ -81,6 +81,9 @@ def create_starting_ensemble(parameters: dict, initial_conditions_settings: dict
         covariance_psd_tolerance=float(initial_conditions_settings["covariance_psd_tolerance"]),
         covariance_negative_warning_tolerance=float(
             initial_conditions_settings["covariance_negative_warning_tolerance"]
+        ),
+        remove_center_of_mass_velocity=bool(
+            initial_conditions_settings["remove_center_of_mass_velocity"]
         ),
     )
 
@@ -302,6 +305,35 @@ def run_single_experiment(config_path: Path) -> None:
         parameters,
         sections["initial_conditions"],
     )
+
+    initial_conditions_settings = sections["initial_conditions"]
+    lag_absolute = np.abs(parameters["lags"]).astype(float)
+    initial_mode = str(initial_conditions_settings["mode"])
+
+    if initial_mode == "correlated_velocity":
+        target_profile = (
+            float(initial_conditions_settings["amplitude"])
+            * ((-1.0) ** lag_absolute)
+            * np.exp(-float(initial_conditions_settings["alpha"]) * lag_absolute)
+        )
+    elif initial_mode == "random_thermal":
+        target_profile = np.zeros_like(lag_absolute, dtype=float)
+        zero_lag_mask = lag_absolute == 0.0
+        target_profile[zero_lag_mask] = float(initial_conditions_settings["random_thermal_std"]) ** 2
+    else:
+        raise ValueError(f"Неизвестный initial_conditions.mode: {initial_mode}")
+
+    initial_covariance_validation = validate_initial_covariance(
+        velocity_ensemble,
+        parameters["lags"],
+        target_profile,
+    )
+    print(
+        "Проверка начальной ковариации скоростей: "
+        f"max_abs_error={initial_covariance_validation['max_abs_error']:.3e}, "
+        f"relative_error={initial_covariance_validation['relative_error']:.3e}"
+    )
+
     _, _, histories = run_integration_loop(parameters, displacement_ensemble, velocity_ensemble)
     packed_histories = pack_histories(histories)
     detector_result = run_detector(sections, parameters, packed_histories)
@@ -311,6 +343,17 @@ def run_single_experiment(config_path: Path) -> None:
     detector_result["max_relative_energy_drift"] = float(
         np.max(np.abs(packed_histories["relative_energy_drift_array"]))
     )
+    detector_result["remove_center_of_mass_velocity"] = bool(
+        initial_conditions_settings["remove_center_of_mass_velocity"]
+    )
+    detector_result["initial_covariance_validation"] = {
+        "mode": initial_mode,
+        "lags": parameters["lags"].astype(int).tolist(),
+        "empirical_profile": initial_covariance_validation["empirical_profile"].astype(float).tolist(),
+        "target_profile": initial_covariance_validation["target_profile"].astype(float).tolist(),
+        "max_abs_error": float(initial_covariance_validation["max_abs_error"]),
+        "relative_error": float(initial_covariance_validation["relative_error"]),
+    }
     save_results(
         config_path,
         config,
