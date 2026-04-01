@@ -275,7 +275,7 @@ def build_notes(heuristic_candidate: bool, xi_conditions: dict, kappa_conditions
         "heuristic_candidate основан на исследовательских порогах согласованной локализации "
         "и почти-периодичности xi_k и kappa_k; это не является строгим доказательством "
         "существования корреляционного бризера. "
-        f"result={heuristic_candidate}; "
-        f"xi_checks={xi_conditions}; "
-        f"kappa_checks={kappa_conditions}"
+        f"heuristic_candidate={heuristic_candidate}; "
+        f"xi_conditions={xi_conditions}; "
+        f"kappa_conditions={kappa_conditions}"
     )

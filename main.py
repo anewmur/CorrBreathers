@@ -280,6 +280,9 @@ def build_legacy_detector_result(detector_result: dict) -> dict:
     legacy_result = dict(detector_result)
     legacy_result.update(
         {
+            "heuristic_candidate": bool(detector_result["heuristic_candidate"]),
+            "xi_metrics": detector_result["xi_metrics"],
+            "kappa_metrics": detector_result["kappa_metrics"],
             "found": bool(detector_result["heuristic_candidate"]),
             "detected_frequency": float(kappa_metrics["dominant_frequency"]),
             "central_amplitude": float(kappa_metrics["final_central_amplitude"]),
