@@ -45,9 +45,12 @@ def save_time_series_npz(
     lags: np.ndarray,
     xi_history: np.ndarray,
     kappa_history: np.ndarray,
-    width_history: np.ndarray,
-    central_amplitude_history: np.ndarray,
-    localization_history: np.ndarray,
+    xi_width_history: np.ndarray,
+    kappa_width_history: np.ndarray,
+    xi_central_amplitude_history: np.ndarray,
+    kappa_central_amplitude_history: np.ndarray,
+    xi_localization_history: np.ndarray,
+    kappa_localization_history: np.ndarray,
     energy_history: np.ndarray,
     relative_energy_drift_history: np.ndarray,
 ) -> None:
@@ -58,12 +61,50 @@ def save_time_series_npz(
         lags=lags,
         xi_history=xi_history,
         kappa_history=kappa_history,
-        width_history=width_history,
-        central_amplitude_history=central_amplitude_history,
-        localization_history=localization_history,
+        xi_width_history=xi_width_history,
+        kappa_width_history=kappa_width_history,
+        xi_central_amplitude_history=xi_central_amplitude_history,
+        kappa_central_amplitude_history=kappa_central_amplitude_history,
+        xi_localization_history=xi_localization_history,
+        kappa_localization_history=kappa_localization_history,
         energy_history=energy_history,
         relative_energy_drift_history=relative_energy_drift_history,
     )
+
+
+def build_breather_payload(config_path: Path, config: dict, detector_result: dict) -> dict:
+    """Собирает json в новом формате без legacy-полей."""
+    initial_validation = dict(detector_result["initial_condition_validation"])
+    initial_validation["remove_center_of_mass_velocity"] = bool(
+        initial_validation["remove_center_of_mass_velocity"]
+    )
+
+    return {
+        "heuristic_candidate": bool(detector_result["heuristic_candidate"]),
+        "timestamp": str(detector_result["timestamp"]),
+        "config_path": str(config_path),
+        "chain": {
+            "length": int(config["chain"]["length"]),
+            "mass": float(config["chain"]["mass"]),
+            "stiffness": float(config["chain"]["stiffness"]),
+            "beta": float(config["chain"]["beta"]),
+            "dt": float(config["chain"]["dt"]),
+        },
+        "experiment": {
+            "ensemble_size": int(config["experiment"]["ensemble_size"]),
+            "total_steps": int(config["experiment"]["total_steps"]),
+            "save_every_steps": int(config["experiment"]["save_every_steps"]),
+            "total_time": float(config["chain"]["dt"]) * int(config["experiment"]["total_steps"]),
+        },
+        "initial_condition_validation": initial_validation,
+        "xi_metrics": detector_result["xi_metrics"],
+        "kappa_metrics": detector_result["kappa_metrics"],
+        "numerics": {
+            "final_relative_energy_drift": float(detector_result["numerics"]["final_relative_energy_drift"]),
+            "max_relative_energy_drift": float(detector_result["numerics"]["max_relative_energy_drift"]),
+        },
+        "notes": str(detector_result["notes"]),
+    }
 
 
 def save_breather_json(
@@ -73,70 +114,35 @@ def save_breather_json(
     detector_result: dict,
 ) -> None:
     """Сохраняет итоговые метрики детектора в файл json."""
-    json_payload = {
-        "found": bool(detector_result["found"]),
-        "timestamp": detector_result["timestamp"],
-        "config_path": str(config_path),
-        "chain_length": int(config["chain"]["length"]),
-        "ensemble_size": int(config["experiment"]["ensemble_size"]),
-        "mass": float(config["chain"]["mass"]),
-        "stiffness": float(config["chain"]["stiffness"]),
-        "beta": float(config["chain"]["beta"]),
-        "dt": float(config["chain"]["dt"]),
-        "total_time": float(config["chain"]["dt"]) * int(config["experiment"]["total_steps"]),
-        "save_every": int(config["experiment"]["save_every_steps"]),
-        "detected_frequency": float(detector_result["detected_frequency"]),
-        "central_amplitude": float(detector_result["central_amplitude"]),
-        "final_width": float(detector_result["final_width"]),
-        "oscillatory_tail_detected": bool(detector_result["oscillatory_tail_detected"]),
-        "tail_model": str(detector_result["tail_model"]),
-        "fitted_alpha": float(detector_result["fitted_alpha"]),
-        "fitted_amplitude": float(detector_result["fitted_amplitude"]),
-        "dominant_peak_ratio": float(detector_result["dominant_peak_ratio"]),
-        "localization_score": float(detector_result["localization_score"]),
-        "periodicity_score": float(detector_result["periodicity_score"]),
-        "tail_fit_error": float(detector_result["tail_fit_error"]),
-        "sign_mismatch_fraction": float(detector_result["sign_mismatch_fraction"]),
-        "central_ratio": float(detector_result["central_ratio"]),
-        "max_late_width": float(detector_result["max_late_width"]),
-        "minimum_late_spectrum_value": float(detector_result["minimum_late_spectrum_value"]),
-        "passes_psd_check": bool(detector_result["passes_psd_check"]),
-        "final_relative_energy_drift": float(detector_result["final_relative_energy_drift"]),
-        "max_relative_energy_drift": float(detector_result["max_relative_energy_drift"]),
-        "remove_center_of_mass_velocity": bool(detector_result["remove_center_of_mass_velocity"]),
-        "initial_covariance_validation": detector_result["initial_covariance_validation"],
-        "notes": str(detector_result["notes"]),
-    }
-
+    json_payload = build_breather_payload(config_path, config, detector_result)
     output_path = output_directory / "found_breather.json"
     with output_path.open("w", encoding="utf-8") as stream:
         json.dump(json_payload, stream, indent=2, ensure_ascii=False)
 
 
+def format_section(section_name: str, section_values: dict) -> list[str]:
+    """Форматирует словарь как секцию summary.txt."""
+    lines = [f"[{section_name}]"]
+    for key, value in section_values.items():
+        lines.append(f"{key}: {value}")
+    lines.append("")
+    return lines
+
+
 def save_summary_text(output_directory: Path, detector_result: dict) -> None:
     """Записывает краткую текстовую сводку по результатам."""
     summary_lines = [
-        f"found: {detector_result['found']}",
+        f"heuristic_candidate: {detector_result['heuristic_candidate']}",
         f"timestamp: {detector_result['timestamp']}",
-        f"detected_frequency: {detector_result['detected_frequency']:.6f}",
-        f"final_width: {detector_result['final_width']:.6f}",
-        f"central_amplitude: {detector_result['central_amplitude']:.6f}",
-        f"dominant_peak_ratio: {detector_result['dominant_peak_ratio']:.6f}",
-        f"tail_fit_error: {detector_result['tail_fit_error']:.6f}",
-        f"sign_mismatch_fraction: {detector_result['sign_mismatch_fraction']:.6f}",
-        f"central_ratio: {detector_result['central_ratio']:.6f}",
-        f"max_late_width: {detector_result['max_late_width']:.6f}",
-        f"minimum_late_spectrum_value: {detector_result['minimum_late_spectrum_value']:.6e}",
-        f"passes_psd_check: {detector_result['passes_psd_check']}",
-        f"final_relative_energy_drift: {detector_result['final_relative_energy_drift']:.6e}",
-        f"max_relative_energy_drift: {detector_result['max_relative_energy_drift']:.6e}",
-        f"remove_center_of_mass_velocity: {detector_result['remove_center_of_mass_velocity']}",
-        "initial_covariance_validation:",
-        f"  mode: {detector_result['initial_covariance_validation']['mode']}",
-        f"  max_abs_error: {detector_result['initial_covariance_validation']['max_abs_error']:.6e}",
-        f"  relative_error: {detector_result['initial_covariance_validation']['relative_error']:.6e}",
-        f"notes: {detector_result['notes']}",
+        "",
     ]
+    summary_lines.extend(
+        format_section("initial_condition_validation", detector_result["initial_condition_validation"])
+    )
+    summary_lines.extend(format_section("xi_metrics", detector_result["xi_metrics"]))
+    summary_lines.extend(format_section("kappa_metrics", detector_result["kappa_metrics"]))
+    summary_lines.extend(format_section("numerics", detector_result["numerics"]))
+    summary_lines.append(f"notes: {detector_result['notes']}")
 
     with (output_directory / "summary.txt").open("w", encoding="utf-8") as stream:
         stream.write("\n".join(summary_lines) + "\n")
