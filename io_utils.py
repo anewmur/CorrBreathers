@@ -8,13 +8,13 @@ import yaml
 
 
 def read_config(config_path: Path) -> dict:
-    """Read YAML configuration file."""
+    """Читает файл конфигурации в формате YAML."""
     with config_path.open("r", encoding="utf-8") as stream:
         return yaml.safe_load(stream)
 
 
 def ensure_output_directory(config: dict) -> Path:
-    """Create output directory if needed."""
+    """Создаёт каталог для выходных файлов."""
     output_directory = Path(config["experiment"]["output_dir"])
     output_directory.mkdir(parents=True, exist_ok=True)
     return output_directory
@@ -28,7 +28,7 @@ def print_progress(
     profile_width: float,
     central_amplitude: float,
 ) -> None:
-    """Print clear progress line for the current saved state."""
+    """Печатает строку состояния на сохранённом шаге."""
     message = (
         f"step={step_index:6d}/{total_steps:6d} | "
         f"time={current_time:9.4f} | "
@@ -49,8 +49,9 @@ def save_time_series_npz(
     central_amplitude_history: np.ndarray,
     localization_history: np.ndarray,
     energy_history: np.ndarray,
+    relative_energy_drift_history: np.ndarray,
 ) -> None:
-    """Save simulation time-series arrays to compressed npz file."""
+    """Сохраняет временные ряды в сжатый файл npz."""
     np.savez_compressed(
         output_directory / "time_series.npz",
         time_grid=time_grid,
@@ -61,6 +62,7 @@ def save_time_series_npz(
         central_amplitude_history=central_amplitude_history,
         localization_history=localization_history,
         energy_history=energy_history,
+        relative_energy_drift_history=relative_energy_drift_history,
     )
 
 
@@ -70,7 +72,7 @@ def save_breather_json(
     output_directory: Path,
     detector_result: dict,
 ) -> None:
-    """Save detector status and main metrics in requested JSON format."""
+    """Сохраняет итоговые метрики детектора в файл json."""
     json_payload = {
         "found": bool(detector_result["found"]),
         "timestamp": detector_result["timestamp"],
@@ -87,14 +89,20 @@ def save_breather_json(
         "central_amplitude": float(detector_result["central_amplitude"]),
         "final_width": float(detector_result["final_width"]),
         "oscillatory_tail_detected": bool(detector_result["oscillatory_tail_detected"]),
+        "tail_model": str(detector_result["tail_model"]),
         "fitted_alpha": float(detector_result["fitted_alpha"]),
         "fitted_amplitude": float(detector_result["fitted_amplitude"]),
         "dominant_peak_ratio": float(detector_result["dominant_peak_ratio"]),
         "localization_score": float(detector_result["localization_score"]),
         "periodicity_score": float(detector_result["periodicity_score"]),
         "tail_fit_error": float(detector_result["tail_fit_error"]),
+        "sign_mismatch_fraction": float(detector_result["sign_mismatch_fraction"]),
         "central_ratio": float(detector_result["central_ratio"]),
         "max_late_width": float(detector_result["max_late_width"]),
+        "minimum_late_spectrum_value": float(detector_result["minimum_late_spectrum_value"]),
+        "passes_psd_check": bool(detector_result["passes_psd_check"]),
+        "final_relative_energy_drift": float(detector_result["final_relative_energy_drift"]),
+        "max_relative_energy_drift": float(detector_result["max_relative_energy_drift"]),
         "notes": str(detector_result["notes"]),
     }
 
@@ -104,7 +112,7 @@ def save_breather_json(
 
 
 def save_summary_text(output_directory: Path, detector_result: dict) -> None:
-    """Write concise human-readable summary text file."""
+    """Записывает краткую текстовую сводку по результатам."""
     summary_lines = [
         f"found: {detector_result['found']}",
         f"timestamp: {detector_result['timestamp']}",
@@ -113,6 +121,13 @@ def save_summary_text(output_directory: Path, detector_result: dict) -> None:
         f"central_amplitude: {detector_result['central_amplitude']:.6f}",
         f"dominant_peak_ratio: {detector_result['dominant_peak_ratio']:.6f}",
         f"tail_fit_error: {detector_result['tail_fit_error']:.6f}",
+        f"sign_mismatch_fraction: {detector_result['sign_mismatch_fraction']:.6f}",
+        f"central_ratio: {detector_result['central_ratio']:.6f}",
+        f"max_late_width: {detector_result['max_late_width']:.6f}",
+        f"minimum_late_spectrum_value: {detector_result['minimum_late_spectrum_value']:.6e}",
+        f"passes_psd_check: {detector_result['passes_psd_check']}",
+        f"final_relative_energy_drift: {detector_result['final_relative_energy_drift']:.6e}",
+        f"max_relative_energy_drift: {detector_result['max_relative_energy_drift']:.6e}",
         f"notes: {detector_result['notes']}",
     ]
 

@@ -13,7 +13,7 @@ def velocity_verlet_step(
     beta: float,
     mass: float,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Perform one velocity-Verlet step for the entire ensemble."""
+    """Делает один шаг схемы Верле для всего ансамбля."""
     old_acceleration = compute_acceleration(
         displacement_ensemble,
         stiffness,

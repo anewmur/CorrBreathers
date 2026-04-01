@@ -31,7 +31,12 @@ detector:
   min_central_amplitude_ratio: 0.4
   min_peak_to_background_ratio: 5.0
   max_tail_fit_error: 0.25
+  min_tail_fit_lag: 4
+  profile_psd_tolerance: 1.0e-10
   oscillatory_tail_preferred: true
+
+numerics:
+  max_relative_energy_drift_warning: 1.0e-3
 
 plots:
   enabled: true

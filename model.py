@@ -4,7 +4,7 @@ import numpy as np
 
 
 def compute_strain(displacement_ensemble: np.ndarray) -> np.ndarray:
-    """Compute strain eps_n = u_{n+1} - u_n with periodic boundaries."""
+    """Вычисляет деформацию eps_n = u_{n+1} - u_n."""
     return np.roll(displacement_ensemble, shift=-1, axis=1) - displacement_ensemble
 
 
@@ -14,7 +14,7 @@ def compute_acceleration(
     beta: float,
     mass: float,
 ) -> np.ndarray:
-    """Compute accelerations for all ensemble states in the beta-FPU chain."""
+    """Вычисляет ускорения в цепочке бета-ФПУ."""
     strain = compute_strain(displacement_ensemble)
     linear_force = strain - np.roll(strain, shift=1, axis=1)
     nonlinear_force = strain ** 3 - np.roll(strain ** 3, shift=1, axis=1)
@@ -29,7 +29,7 @@ def compute_total_energy_ensemble(
     stiffness: float,
     beta: float,
 ) -> float:
-    """Compute average total energy per realization for stability diagnostics."""
+    """Считает среднюю полную энергию по ансамблю."""
     strain = compute_strain(displacement_ensemble)
     kinetic_energy = 0.5 * mass * np.sum(velocity_ensemble ** 2, axis=1)
     linear_potential = 0.5 * stiffness * np.sum(strain ** 2, axis=1)
