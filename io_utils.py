@@ -73,7 +73,7 @@ def save_time_series_npz(
 
 
 def build_breather_payload(config_path: Path, config: dict, detector_result: dict) -> dict:
-    """Собирает json в новом формате без legacy-полей."""
+    """Собирает json в новом формате без legacy-полей и с блоком numerics."""
     initial_validation = dict(detector_result["initial_condition_validation"])
     initial_validation["remove_center_of_mass_velocity"] = bool(
         initial_validation["remove_center_of_mass_velocity"]
@@ -97,8 +97,8 @@ def build_breather_payload(config_path: Path, config: dict, detector_result: dic
             "total_time": float(config["chain"]["dt"]) * int(config["experiment"]["total_steps"]),
         },
         "initial_condition_validation": initial_validation,
-        "xi_metrics": detector_result["xi_metrics"],
-        "kappa_metrics": detector_result["kappa_metrics"],
+        "xi_metrics": dict(detector_result["xi_metrics"]),
+        "kappa_metrics": dict(detector_result["kappa_metrics"]),
         "numerics": {
             "final_relative_energy_drift": float(detector_result["numerics"]["final_relative_energy_drift"]),
             "max_relative_energy_drift": float(detector_result["numerics"]["max_relative_energy_drift"]),
@@ -129,6 +129,18 @@ def format_section(section_name: str, section_values: dict) -> list[str]:
     return lines
 
 
+def format_initial_condition_validation_section(initial_validation: dict) -> list[str]:
+    """Форматирует краткую секцию валидации начальных условий для summary.txt."""
+    return [
+        "[initial_condition_validation]",
+        f"mode: {initial_validation['mode']}",
+        f"remove_center_of_mass_velocity: {initial_validation['remove_center_of_mass_velocity']}",
+        f"max_abs_error: {initial_validation['max_abs_error']}",
+        f"relative_error: {initial_validation['relative_error']}",
+        "",
+    ]
+
+
 def save_summary_text(output_directory: Path, detector_result: dict) -> None:
     """Записывает краткую текстовую сводку по результатам."""
     summary_lines = [
@@ -137,7 +149,7 @@ def save_summary_text(output_directory: Path, detector_result: dict) -> None:
         "",
     ]
     summary_lines.extend(
-        format_section("initial_condition_validation", detector_result["initial_condition_validation"])
+        format_initial_condition_validation_section(detector_result["initial_condition_validation"])
     )
     summary_lines.extend(format_section("xi_metrics", detector_result["xi_metrics"]))
     summary_lines.extend(format_section("kappa_metrics", detector_result["kappa_metrics"]))

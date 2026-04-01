@@ -162,6 +162,15 @@ def compute_late_window_spectrum(
     return frequency_grid, amplitude_spectrum
 
 
+def get_metrics_dominant_frequency(metrics_block: dict) -> float:
+    """Возвращает частоту из блока метрик при допустимых вариантах имени ключа."""
+    if "dominant_frequency" in metrics_block:
+        return float(metrics_block["dominant_frequency"])
+    if "dominant_frequency_late" in metrics_block:
+        return float(metrics_block["dominant_frequency_late"])
+    return 0.0
+
+
 def save_late_spectrum_plot(
     output_path: Path,
     time_grid: np.ndarray,
@@ -182,7 +191,7 @@ def save_late_spectrum_plot(
     plt.figure(figsize=(7, 4))
     plt.plot(frequency_grid, amplitude_spectrum, linewidth=1.5)
 
-    dominant_frequency = float(metrics_block.get("dominant_frequency", 0.0))
+    dominant_frequency = get_metrics_dominant_frequency(metrics_block)
     if dominant_frequency > 0.0:
         plt.axvline(dominant_frequency, color="red", linestyle="--", label="detector dominant frequency")
         plt.legend()
