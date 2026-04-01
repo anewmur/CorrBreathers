@@ -274,41 +274,6 @@ def run_detector(sections: dict, parameters: dict, packed_histories: dict) -> di
     )
 
 
-def build_legacy_detector_result(detector_result: dict) -> dict:
-    """Собирает совместимый со старыми сериализаторами словарь результата."""
-    kappa_metrics = detector_result["kappa_metrics"]
-    legacy_result = dict(detector_result)
-    legacy_result.update(
-        {
-            "heuristic_candidate": bool(detector_result["heuristic_candidate"]),
-            "xi_metrics": detector_result["xi_metrics"],
-            "kappa_metrics": detector_result["kappa_metrics"],
-            "found": bool(detector_result["heuristic_candidate"]),
-            "detected_frequency": float(kappa_metrics["dominant_frequency"]),
-            "central_amplitude": float(kappa_metrics["final_central_amplitude"]),
-            "final_width": float(kappa_metrics["final_width"]),
-            "oscillatory_tail_detected": bool(kappa_metrics["oscillatory_tail_detected"]),
-            "tail_model": str(kappa_metrics["tail_fit_model"]),
-            "fitted_alpha": float(kappa_metrics["fitted_tail_alpha"]),
-            "fitted_amplitude": float(kappa_metrics["fitted_tail_amplitude"]),
-            "dominant_peak_ratio": float(kappa_metrics["dominant_peak_ratio"]),
-            "localization_score": float(kappa_metrics["mean_late_localization_fraction"]),
-            "periodicity_score": float(kappa_metrics["dominant_peak_ratio"]),
-            "tail_fit_error": float(kappa_metrics["tail_fit_error"]),
-            "sign_mismatch_fraction": float(
-                kappa_metrics["sign_mismatch_fraction_for_oscillatory_tail"]
-            ),
-            "central_ratio": float(kappa_metrics["late_to_initial_central_amplitude_ratio"]),
-            "max_late_width": float(kappa_metrics["max_late_width"]),
-            "minimum_late_spectrum_value": float(
-                kappa_metrics["minimum_toeplitz_eigenvalue_on_late_profile"]
-            ),
-            "passes_psd_check": bool(kappa_metrics["passes_psd_check"]),
-        }
-    )
-    return legacy_result
-
-
 def save_results(
     config_path: Path,
     config: dict,
@@ -319,30 +284,36 @@ def save_results(
     detector_result: dict,
 ) -> None:
     """Сохраняет файлы с результатами расчёта."""
-    detector_output = build_legacy_detector_result(detector_result)
     save_time_series_npz(
         output_directory,
         packed_histories["time_grid"],
         parameters["lags"],
         packed_histories["xi_array"],
         packed_histories["kappa_array"],
+        packed_histories["xi_width_array"],
         packed_histories["kappa_width_array"],
+        packed_histories["xi_central_array"],
         packed_histories["kappa_central_array"],
+        packed_histories["xi_localization_array"],
         packed_histories["kappa_localization_array"],
         packed_histories["energy_array"],
         packed_histories["relative_energy_drift_array"],
     )
-    save_breather_json(config_path, config, output_directory, detector_output)
-    save_summary_text(output_directory, detector_output)
+    save_breather_json(config_path, config, output_directory, detector_result)
+    save_summary_text(output_directory, detector_result)
     save_diagnostic_plots(
         plots_enabled=bool(sections["plots"]["enabled"]),
         output_directory=output_directory,
         time_grid=packed_histories["time_grid"],
         lags=parameters["lags"],
+        xi_history=packed_histories["xi_array"],
         kappa_history=packed_histories["kappa_array"],
-        width_history=packed_histories["kappa_width_array"],
-        central_amplitude_history=packed_histories["kappa_central_array"],
-        detector_result=detector_output,
+        xi_width_history=packed_histories["xi_width_array"],
+        kappa_width_history=packed_histories["kappa_width_array"],
+        xi_central_amplitude_history=packed_histories["xi_central_array"],
+        kappa_central_amplitude_history=packed_histories["kappa_central_array"],
+        detector_settings=sections["detector"],
+        detector_result=detector_result,
     )
 
 
@@ -393,17 +364,17 @@ def run_single_experiment(config_path: Path) -> None:
     _, _, histories = run_integration_loop(parameters, displacement_ensemble, velocity_ensemble)
     packed_histories = pack_histories(histories)
     detector_result = run_detector(sections, parameters, packed_histories)
-    detector_result["final_relative_energy_drift"] = float(
-        packed_histories["relative_energy_drift_array"][-1]
-    )
-    detector_result["max_relative_energy_drift"] = float(
-        np.max(np.abs(packed_histories["relative_energy_drift_array"]))
-    )
-    detector_result["remove_center_of_mass_velocity"] = bool(
-        initial_conditions_settings["remove_center_of_mass_velocity"]
-    )
-    detector_result["initial_covariance_validation"] = {
+    detector_result["numerics"] = {
+        "final_relative_energy_drift": float(packed_histories["relative_energy_drift_array"][-1]),
+        "max_relative_energy_drift": float(
+            np.max(np.abs(packed_histories["relative_energy_drift_array"]))
+        ),
+    }
+    detector_result["initial_condition_validation"] = {
         "mode": initial_mode,
+        "remove_center_of_mass_velocity": bool(
+            initial_conditions_settings["remove_center_of_mass_velocity"]
+        ),
         "lags": parameters["lags"].astype(int).tolist(),
         "empirical_profile": initial_covariance_validation["empirical_profile"].astype(float).tolist(),
         "target_profile": initial_covariance_validation["target_profile"].astype(float).tolist(),
