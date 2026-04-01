@@ -121,9 +121,16 @@ def collect_step_metrics(
         "current_time": current_time,
         "xi_profile": xi_profile,
         "kappa_profile": kappa_profile,
-        "profile_width": compute_correlation_width(kappa_profile, parameters["lags"]),
-        "central_amplitude": float(kappa_profile[parameters["max_lag"]]),
-        "localization_fraction": compute_localization_fraction(
+        "xi_width": compute_correlation_width(xi_profile, parameters["lags"]),
+        "kappa_width": compute_correlation_width(kappa_profile, parameters["lags"]),
+        "xi_central_amplitude": float(xi_profile[parameters["max_lag"]]),
+        "kappa_central_amplitude": float(kappa_profile[parameters["max_lag"]]),
+        "xi_localization_fraction": compute_localization_fraction(
+            xi_profile,
+            parameters["lags"],
+            parameters["localization_radius"],
+        ),
+        "kappa_localization_fraction": compute_localization_fraction(
             kappa_profile,
             parameters["lags"],
             parameters["localization_radius"],
@@ -138,9 +145,12 @@ def append_step_metrics(histories: dict, metrics: dict) -> None:
     histories["time"].append(metrics["current_time"])
     histories["xi"].append(metrics["xi_profile"])
     histories["kappa"].append(metrics["kappa_profile"])
-    histories["width"].append(metrics["profile_width"])
-    histories["central"].append(metrics["central_amplitude"])
-    histories["localization"].append(metrics["localization_fraction"])
+    histories["xi_width"].append(metrics["xi_width"])
+    histories["kappa_width"].append(metrics["kappa_width"])
+    histories["xi_central"].append(metrics["xi_central_amplitude"])
+    histories["kappa_central"].append(metrics["kappa_central_amplitude"])
+    histories["xi_localization"].append(metrics["xi_localization_fraction"])
+    histories["kappa_localization"].append(metrics["kappa_localization_fraction"])
     histories["energy"].append(metrics["average_energy"])
     histories["relative_energy_drift"].append(metrics["relative_energy_drift"])
 
@@ -177,8 +187,8 @@ def save_diagnostics_step(
         parameters["total_steps"],
         metrics["current_time"],
         metrics["average_energy"],
-        metrics["profile_width"],
-        metrics["central_amplitude"],
+        metrics["kappa_width"],
+        metrics["kappa_central_amplitude"],
     )
     print_energy_drift_warning(
         metrics["relative_energy_drift"],
@@ -196,9 +206,12 @@ def run_integration_loop(
         "time": [],
         "xi": [],
         "kappa": [],
-        "width": [],
-        "central": [],
-        "localization": [],
+        "xi_width": [],
+        "kappa_width": [],
+        "xi_central": [],
+        "kappa_central": [],
+        "xi_localization": [],
+        "kappa_localization": [],
         "energy": [],
         "relative_energy_drift": [],
     }
@@ -233,9 +246,12 @@ def pack_histories(histories: dict) -> dict:
         "time_grid": np.asarray(histories["time"], dtype=float),
         "xi_array": np.asarray(histories["xi"], dtype=float),
         "kappa_array": np.asarray(histories["kappa"], dtype=float),
-        "width_array": np.asarray(histories["width"], dtype=float),
-        "central_array": np.asarray(histories["central"], dtype=float),
-        "localization_array": np.asarray(histories["localization"], dtype=float),
+        "xi_width_array": np.asarray(histories["xi_width"], dtype=float),
+        "kappa_width_array": np.asarray(histories["kappa_width"], dtype=float),
+        "xi_central_array": np.asarray(histories["xi_central"], dtype=float),
+        "kappa_central_array": np.asarray(histories["kappa_central"], dtype=float),
+        "xi_localization_array": np.asarray(histories["xi_localization"], dtype=float),
+        "kappa_localization_array": np.asarray(histories["kappa_localization"], dtype=float),
         "energy_array": np.asarray(histories["energy"], dtype=float),
         "relative_energy_drift_array": np.asarray(histories["relative_energy_drift"], dtype=float),
     }
@@ -247,11 +263,47 @@ def run_detector(sections: dict, parameters: dict, packed_histories: dict) -> di
         detector_settings=sections["detector"],
         time_grid=packed_histories["time_grid"],
         lags=parameters["lags"],
+        xi_history=packed_histories["xi_array"],
         kappa_history=packed_histories["kappa_array"],
-        width_history=packed_histories["width_array"],
-        central_amplitude_history=packed_histories["central_array"],
-        localization_history=packed_histories["localization_array"],
+        xi_width_history=packed_histories["xi_width_array"],
+        kappa_width_history=packed_histories["kappa_width_array"],
+        xi_central_amplitude_history=packed_histories["xi_central_array"],
+        kappa_central_amplitude_history=packed_histories["kappa_central_array"],
+        xi_localization_history=packed_histories["xi_localization_array"],
+        kappa_localization_history=packed_histories["kappa_localization_array"],
     )
+
+
+def build_legacy_detector_result(detector_result: dict) -> dict:
+    """Собирает совместимый со старыми сериализаторами словарь результата."""
+    kappa_metrics = detector_result["kappa_metrics"]
+    legacy_result = dict(detector_result)
+    legacy_result.update(
+        {
+            "found": bool(detector_result["heuristic_candidate"]),
+            "detected_frequency": float(kappa_metrics["dominant_frequency"]),
+            "central_amplitude": float(kappa_metrics["final_central_amplitude"]),
+            "final_width": float(kappa_metrics["final_width"]),
+            "oscillatory_tail_detected": bool(kappa_metrics["oscillatory_tail_detected"]),
+            "tail_model": str(kappa_metrics["tail_fit_model"]),
+            "fitted_alpha": float(kappa_metrics["fitted_tail_alpha"]),
+            "fitted_amplitude": float(kappa_metrics["fitted_tail_amplitude"]),
+            "dominant_peak_ratio": float(kappa_metrics["dominant_peak_ratio"]),
+            "localization_score": float(kappa_metrics["mean_late_localization_fraction"]),
+            "periodicity_score": float(kappa_metrics["dominant_peak_ratio"]),
+            "tail_fit_error": float(kappa_metrics["tail_fit_error"]),
+            "sign_mismatch_fraction": float(
+                kappa_metrics["sign_mismatch_fraction_for_oscillatory_tail"]
+            ),
+            "central_ratio": float(kappa_metrics["late_to_initial_central_amplitude_ratio"]),
+            "max_late_width": float(kappa_metrics["max_late_width"]),
+            "minimum_late_spectrum_value": float(
+                kappa_metrics["minimum_toeplitz_eigenvalue_on_late_profile"]
+            ),
+            "passes_psd_check": bool(kappa_metrics["passes_psd_check"]),
+        }
+    )
+    return legacy_result
 
 
 def save_results(
@@ -264,36 +316,37 @@ def save_results(
     detector_result: dict,
 ) -> None:
     """Сохраняет файлы с результатами расчёта."""
+    detector_output = build_legacy_detector_result(detector_result)
     save_time_series_npz(
         output_directory,
         packed_histories["time_grid"],
         parameters["lags"],
         packed_histories["xi_array"],
         packed_histories["kappa_array"],
-        packed_histories["width_array"],
-        packed_histories["central_array"],
-        packed_histories["localization_array"],
+        packed_histories["kappa_width_array"],
+        packed_histories["kappa_central_array"],
+        packed_histories["kappa_localization_array"],
         packed_histories["energy_array"],
         packed_histories["relative_energy_drift_array"],
     )
-    save_breather_json(config_path, config, output_directory, detector_result)
-    save_summary_text(output_directory, detector_result)
+    save_breather_json(config_path, config, output_directory, detector_output)
+    save_summary_text(output_directory, detector_output)
     save_diagnostic_plots(
         plots_enabled=bool(sections["plots"]["enabled"]),
         output_directory=output_directory,
         time_grid=packed_histories["time_grid"],
         lags=parameters["lags"],
         kappa_history=packed_histories["kappa_array"],
-        width_history=packed_histories["width_array"],
-        central_amplitude_history=packed_histories["central_array"],
-        detector_result=detector_result,
+        width_history=packed_histories["kappa_width_array"],
+        central_amplitude_history=packed_histories["kappa_central_array"],
+        detector_result=detector_output,
     )
 
 
 def print_final_summary(output_directory: Path, detector_result: dict) -> None:
     """Печатает итоговую сводку по завершённому расчёту."""
     print("Моделирование завершено.")
-    print(f"Бризер-кандидат найден: {detector_result['found']}")
+    print(f"Эвристический кандидат бризера: {detector_result['heuristic_candidate']}")
     print(f"Результаты записаны в: {output_directory}")
 
 
