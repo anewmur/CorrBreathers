@@ -20,13 +20,81 @@ def evaluate_breather_candidate(
     detector_settings: dict,
     time_grid: np.ndarray,
     lags: np.ndarray,
+    xi_history: np.ndarray,
     kappa_history: np.ndarray,
+    xi_width_history: np.ndarray,
+    kappa_width_history: np.ndarray,
+    xi_central_amplitude_history: np.ndarray,
+    kappa_central_amplitude_history: np.ndarray,
+    xi_localization_history: np.ndarray,
+    kappa_localization_history: np.ndarray,
+) -> dict:
+    """Эвристически проверяет согласованную локализацию xi_k и kappa_k."""
+    late_indices = get_late_time_indices(time_grid, detector_settings)
+    xi_metrics = analyze_profile_history(
+        profile_history=xi_history,
+        width_history=xi_width_history,
+        central_amplitude_history=xi_central_amplitude_history,
+        localization_history=xi_localization_history,
+        time_grid=time_grid,
+        lags=lags,
+        late_indices=late_indices,
+        detector_settings=detector_settings,
+    )
+    kappa_metrics = analyze_profile_history(
+        profile_history=kappa_history,
+        width_history=kappa_width_history,
+        central_amplitude_history=kappa_central_amplitude_history,
+        localization_history=kappa_localization_history,
+        time_grid=time_grid,
+        lags=lags,
+        late_indices=late_indices,
+        detector_settings=detector_settings,
+    )
+
+    max_width = float(detector_settings["max_width"])
+    min_central_ratio = float(detector_settings["min_central_amplitude_ratio"])
+    min_peak_ratio = float(detector_settings["min_peak_to_background_ratio"])
+    max_tail_fit_error = float(detector_settings["max_tail_fit_error"])
+
+    xi_conditions = {
+        "passes_psd_check": bool(xi_metrics["passes_psd_check"]),
+        "final_width": float(xi_metrics["final_width"]) <= max_width,
+        "central_ratio": float(xi_metrics["late_to_initial_central_amplitude_ratio"]) >= min_central_ratio,
+        "dominant_peak_ratio": float(xi_metrics["dominant_peak_ratio"]) >= min_peak_ratio,
+        "tail_fit_error": float(xi_metrics["tail_fit_error"]) <= max_tail_fit_error,
+    }
+    kappa_conditions = {
+        "passes_psd_check": bool(kappa_metrics["passes_psd_check"]),
+        "final_width": float(kappa_metrics["final_width"]) <= max_width,
+        "central_ratio": float(kappa_metrics["late_to_initial_central_amplitude_ratio"]) >= min_central_ratio,
+        "dominant_peak_ratio": float(kappa_metrics["dominant_peak_ratio"]) >= min_peak_ratio,
+        "tail_fit_error": float(kappa_metrics["tail_fit_error"]) <= max_tail_fit_error,
+    }
+
+    heuristic_candidate = bool(all(xi_conditions.values()) and all(kappa_conditions.values()))
+    notes = build_notes(heuristic_candidate, xi_conditions, kappa_conditions)
+
+    return {
+        "heuristic_candidate": heuristic_candidate,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "xi_metrics": xi_metrics,
+        "kappa_metrics": kappa_metrics,
+        "notes": notes,
+    }
+
+
+def analyze_profile_history(
+    profile_history: np.ndarray,
     width_history: np.ndarray,
     central_amplitude_history: np.ndarray,
     localization_history: np.ndarray,
+    time_grid: np.ndarray,
+    lags: np.ndarray,
+    late_indices: np.ndarray,
+    detector_settings: dict,
 ) -> dict:
-    """Проверяет, проходит ли профиль пороги детектора."""
-    late_indices = get_late_time_indices(time_grid, detector_settings)
+    """Считает диагностические величины для одной истории профилей."""
     late_width = width_history[late_indices]
     late_central = central_amplitude_history[late_indices]
 
@@ -34,11 +102,11 @@ def evaluate_breather_candidate(
     minimum_late_central = float(np.min(np.abs(late_central)))
     central_ratio = minimum_late_central / initial_central
 
-    kappa_zero_index = int(np.where(lags == 0)[0][0])
-    kappa_zero_series = kappa_history[:, kappa_zero_index]
-    detected_frequency, dominant_peak_ratio = analyze_periodicity(time_grid, kappa_zero_series, late_indices)
+    zero_lag_index = int(np.where(lags == 0)[0][0])
+    zero_series = profile_history[:, zero_lag_index]
+    detected_frequency, dominant_peak_ratio = analyze_periodicity(time_grid, zero_series, late_indices)
 
-    late_average_profile = np.mean(kappa_history[late_indices], axis=0)
+    late_average_profile = np.mean(profile_history[late_indices], axis=0)
     minimum_late_spectrum_value, passes_psd_check = check_profile_toeplitz_psd(
         lags,
         late_average_profile,
@@ -51,46 +119,22 @@ def evaluate_breather_candidate(
         bool(detector_settings.get("oscillatory_tail_preferred", True)),
     )
 
-    maximum_late_width = float(np.max(late_width))
-    average_localization = float(np.mean(localization_history[late_indices]))
-
-    localization_ok = maximum_late_width <= float(detector_settings["max_width"])
-    longevity_ok = central_ratio >= float(detector_settings["min_central_amplitude_ratio"])
-    periodicity_ok = dominant_peak_ratio >= float(detector_settings["min_peak_to_background_ratio"])
-    tail_ok = tail_fit_result.error <= float(detector_settings["max_tail_fit_error"])
-    psd_ok = bool(passes_psd_check)
-
-    found = bool(localization_ok and longevity_ok and periodicity_ok and tail_ok and psd_ok)
-    notes = build_notes(
-        localization_ok,
-        longevity_ok,
-        periodicity_ok,
-        tail_ok,
-        psd_ok,
-        tail_fit_result,
-        minimum_late_spectrum_value,
-    )
-
     return {
-        "found": found,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "detected_frequency": float(detected_frequency),
-        "central_amplitude": float(central_amplitude_history[-1]),
+        "final_central_amplitude": float(central_amplitude_history[-1]),
+        "late_to_initial_central_amplitude_ratio": float(central_ratio),
         "final_width": float(width_history[-1]),
-        "oscillatory_tail_detected": bool(tail_fit_result.oscillatory),
-        "tail_model": str(tail_fit_result.model_name),
-        "fitted_alpha": float(tail_fit_result.fitted_alpha),
-        "fitted_amplitude": float(tail_fit_result.fitted_amplitude),
+        "max_late_width": float(np.max(late_width)),
+        "mean_late_localization_fraction": float(np.mean(localization_history[late_indices])),
+        "dominant_frequency": float(detected_frequency),
         "dominant_peak_ratio": float(dominant_peak_ratio),
-        "localization_score": float(average_localization),
-        "periodicity_score": float(dominant_peak_ratio),
+        "tail_fit_model": str(tail_fit_result.model_name),
+        "fitted_tail_alpha": float(tail_fit_result.fitted_alpha),
+        "fitted_tail_amplitude": float(tail_fit_result.fitted_amplitude),
         "tail_fit_error": float(tail_fit_result.error),
-        "sign_mismatch_fraction": float(tail_fit_result.sign_mismatch_fraction),
-        "central_ratio": float(central_ratio),
-        "max_late_width": float(maximum_late_width),
-        "minimum_late_spectrum_value": float(minimum_late_spectrum_value),
+        "oscillatory_tail_detected": bool(tail_fit_result.oscillatory),
+        "sign_mismatch_fraction_for_oscillatory_tail": float(tail_fit_result.sign_mismatch_fraction),
+        "minimum_toeplitz_eigenvalue_on_late_profile": float(minimum_late_spectrum_value),
         "passes_psd_check": bool(passes_psd_check),
-        "notes": notes,
     }
 
 
@@ -106,11 +150,11 @@ def get_late_time_indices(time_grid: np.ndarray, detector_settings: dict) -> np.
 
 def analyze_periodicity(
     time_grid: np.ndarray,
-    kappa_zero_series: np.ndarray,
+    zero_series: np.ndarray,
     late_indices: np.ndarray,
 ) -> tuple[float, float]:
     """Оценивает главную частоту и контраст пика спектра."""
-    late_signal = kappa_zero_series[late_indices]
+    late_signal = zero_series[late_indices]
     detrended_signal = late_signal - np.mean(late_signal)
 
     if detrended_signal.size < 4:
@@ -225,23 +269,13 @@ def fit_single_tail_model(
     )
 
 
-def build_notes(
-    localization_ok: bool,
-    longevity_ok: bool,
-    periodicity_ok: bool,
-    tail_ok: bool,
-    psd_ok: bool,
-    tail_fit_result: TailFitResult,
-    minimum_late_spectrum_value: float,
-) -> str:
-    """Собирает короткое пояснение к решению детектора."""
+def build_notes(heuristic_candidate: bool, xi_conditions: dict, kappa_conditions: dict) -> str:
+    """Собирает пояснение к эвристическому screening-решению."""
     return (
-        f"localization={localization_ok}; "
-        f"longevity={longevity_ok}; "
-        f"periodicity={periodicity_ok}; "
-        f"tail={tail_ok}; "
-        f"tail_model={tail_fit_result.model_name}; "
-        f"tail_sign_mismatch={tail_fit_result.sign_mismatch_fraction:.3f}; "
-        f"psd={psd_ok}; "
-        f"min_toeplitz_eigenvalue={minimum_late_spectrum_value:.3e}"
+        "heuristic_candidate основан на исследовательских порогах согласованной локализации "
+        "и почти-периодичности xi_k и kappa_k; это не является строгим доказательством "
+        "существования корреляционного бризера. "
+        f"result={heuristic_candidate}; "
+        f"xi_checks={xi_conditions}; "
+        f"kappa_checks={kappa_conditions}"
     )
