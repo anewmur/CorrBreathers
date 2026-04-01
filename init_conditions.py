@@ -13,6 +13,7 @@ def create_initial_ensemble(
     alpha: float,
     covariance_psd_tolerance: float,
     covariance_negative_warning_tolerance: float,
+    remove_center_of_mass_velocity: bool,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Создаёт начальные смещения и скорости для ансамбля."""
     if zero_displacements:
@@ -38,8 +39,46 @@ def create_initial_ensemble(
     else:
         raise ValueError(f"Неизвестный initial_conditions.mode: {mode}")
 
-    velocity_ensemble = velocity_ensemble - np.mean(velocity_ensemble, axis=1, keepdims=True)
+    if remove_center_of_mass_velocity:
+        velocity_ensemble = velocity_ensemble - np.mean(velocity_ensemble, axis=1, keepdims=True)
+        print(
+            "ПРЕДУПРЕЖДЕНИЕ: вычтена средняя скорость по узлам; "
+            "ковариация может не совпадать с заданной."
+        )
+
     return displacement_ensemble, velocity_ensemble
+
+
+def validate_initial_covariance(
+    velocity_ensemble: np.ndarray,
+    lags: np.ndarray,
+    target_profile: np.ndarray,
+) -> dict:
+    """Сравнивает эмпирический профиль kappa_k(0) с целевым профилем."""
+    empirical_values: list[float] = []
+
+    for lag in lags:
+        # Совпадает с конвенцией в compute_correlation_profiles: shift = -lag.
+        shifted_velocity = np.roll(velocity_ensemble, shift=-int(lag), axis=1)
+        empirical_values.append(float(np.mean(velocity_ensemble * shifted_velocity)))
+
+    empirical_profile = np.asarray(empirical_values, dtype=float)
+    target_profile_array = np.asarray(target_profile, dtype=float)
+
+    max_abs_error = float(np.max(np.abs(empirical_profile - target_profile_array)))
+
+    target_norm = float(np.linalg.norm(target_profile_array))
+    if target_norm <= 1.0e-14:
+        relative_error = 0.0
+    else:
+        relative_error = float(np.linalg.norm(empirical_profile - target_profile_array) / target_norm)
+
+    return {
+        "empirical_profile": empirical_profile,
+        "target_profile": target_profile_array,
+        "max_abs_error": max_abs_error,
+        "relative_error": relative_error,
+    }
 
 
 def sample_random_thermal_velocities(

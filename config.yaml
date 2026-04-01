@@ -20,6 +20,7 @@ initial_conditions:
   zero_displacements: true
   covariance_psd_tolerance: 1.0e-10
   covariance_negative_warning_tolerance: 1.0e-8
+  remove_center_of_mass_velocity: false
 
 correlations:
   max_lag: 40

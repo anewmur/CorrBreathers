@@ -103,6 +103,8 @@ def save_breather_json(
         "passes_psd_check": bool(detector_result["passes_psd_check"]),
         "final_relative_energy_drift": float(detector_result["final_relative_energy_drift"]),
         "max_relative_energy_drift": float(detector_result["max_relative_energy_drift"]),
+        "remove_center_of_mass_velocity": bool(detector_result["remove_center_of_mass_velocity"]),
+        "initial_covariance_validation": detector_result["initial_covariance_validation"],
         "notes": str(detector_result["notes"]),
     }
 
@@ -128,6 +130,11 @@ def save_summary_text(output_directory: Path, detector_result: dict) -> None:
         f"passes_psd_check: {detector_result['passes_psd_check']}",
         f"final_relative_energy_drift: {detector_result['final_relative_energy_drift']:.6e}",
         f"max_relative_energy_drift: {detector_result['max_relative_energy_drift']:.6e}",
+        f"remove_center_of_mass_velocity: {detector_result['remove_center_of_mass_velocity']}",
+        "initial_covariance_validation:",
+        f"  mode: {detector_result['initial_covariance_validation']['mode']}",
+        f"  max_abs_error: {detector_result['initial_covariance_validation']['max_abs_error']:.6e}",
+        f"  relative_error: {detector_result['initial_covariance_validation']['relative_error']:.6e}",
         f"notes: {detector_result['notes']}",
     ]
 
