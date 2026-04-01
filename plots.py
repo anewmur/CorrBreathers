@@ -7,7 +7,7 @@ import numpy as np
 
 
 def save_diagnostic_plots(
-    config: dict,
+    plots_enabled: bool,
     output_directory: Path,
     time_grid: np.ndarray,
     lags: np.ndarray,
@@ -16,21 +16,21 @@ def save_diagnostic_plots(
     central_amplitude_history: np.ndarray,
     detector_result: dict,
 ) -> None:
-    """Save required PNG diagnostic plots."""
-    if not bool(config["plots"]["enabled"]):
+    """Сохраняет набор диагностических графиков."""
+    if not plots_enabled:
         return
 
     save_profile_plot(
         output_directory / "kappa_profile_initial.png",
         lags,
         kappa_history[0],
-        "Initial kappa profile",
+        "Начальный профиль kappa",
     )
     save_profile_plot(
         output_directory / "kappa_profile_final.png",
         lags,
         kappa_history[-1],
-        "Final kappa profile",
+        "Конечный профиль kappa",
     )
     save_time_series_plot(
         output_directory / "kappa0_time_series.png",
@@ -49,8 +49,8 @@ def save_diagnostic_plots(
         output_directory / "width_time_series.png",
         time_grid,
         width_history,
-        "Width of kappa profile",
-        "width",
+        "Ширина профиля kappa",
+        "ширина",
     )
 
 
@@ -60,10 +60,10 @@ def save_profile_plot(
     profile_values: np.ndarray,
     title: str,
 ) -> None:
-    """Save one profile versus lag index."""
+    """Сохраняет график профиля по лагу."""
     plt.figure(figsize=(7, 4))
     plt.plot(lags, profile_values, marker="o", markersize=3, linewidth=1.5)
-    plt.xlabel("lag k")
+    plt.xlabel("лаг k")
     plt.ylabel("kappa_k")
     plt.title(title)
     plt.grid(True, alpha=0.3)
@@ -79,10 +79,10 @@ def save_time_series_plot(
     title: str,
     y_label: str,
 ) -> None:
-    """Save generic time-series plot."""
+    """Сохраняет график временного ряда."""
     plt.figure(figsize=(7, 4))
     plt.plot(time_grid, series_values, linewidth=1.5)
-    plt.xlabel("time")
+    plt.xlabel("время")
     plt.ylabel(y_label)
     plt.title(title)
     plt.grid(True, alpha=0.3)
@@ -97,7 +97,7 @@ def save_spectrum_plot(
     kappa_zero_series: np.ndarray,
     detector_result: dict,
 ) -> None:
-    """Save Fourier spectrum of kappa_0(t) and mark dominant peak."""
+    """Сохраняет спектр kappa_0(t) и отмечает главный пик."""
     if time_grid.size < 4:
         return
 
@@ -110,11 +110,11 @@ def save_spectrum_plot(
     plt.plot(frequency_grid, amplitude_spectrum, linewidth=1.5)
     dominant_frequency = float(detector_result.get("detected_frequency", 0.0))
     if dominant_frequency > 0.0:
-        plt.axvline(dominant_frequency, color="red", linestyle="--", label="detected peak")
+        plt.axvline(dominant_frequency, color="red", linestyle="--", label="обнаруженный пик")
         plt.legend()
-    plt.xlabel("frequency")
-    plt.ylabel("amplitude")
-    plt.title("Spectrum of kappa_0(t)")
+    plt.xlabel("частота")
+    plt.ylabel("амплитуда")
+    plt.title("Спектр kappa_0(t)")
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)

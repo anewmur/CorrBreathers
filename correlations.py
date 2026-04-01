@@ -10,7 +10,7 @@ def compute_correlation_profiles(
     velocity_ensemble: np.ndarray,
     lags: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Compute xi_k and kappa_k by averaging over sites and ensemble members."""
+    """Вычисляет профили xi_k и kappa_k по ансамблю и узлам."""
     strain_ensemble = compute_strain(displacement_ensemble)
 
     xi_values: list[float] = []
@@ -30,7 +30,7 @@ def compute_correlation_profiles(
 
 
 def compute_correlation_width(kappa_profile: np.ndarray, lags: np.ndarray) -> float:
-    """Compute effective width sqrt(sum(k^2 w_k)/sum(w_k)) with positive weights."""
+    """Оценивает ширину профиля по второму моменту."""
     weights = np.abs(kappa_profile)
     denominator = float(np.sum(weights))
     if denominator <= 1.0e-14:
@@ -45,7 +45,7 @@ def compute_localization_fraction(
     lags: np.ndarray,
     localization_radius: int,
 ) -> float:
-    """Fraction of |kappa_k| concentrated in |k| <= localization_radius."""
+    """Считает долю профиля внутри заданного радиуса локализации."""
     absolute_profile = np.abs(kappa_profile)
     total_weight = float(np.sum(absolute_profile))
     if total_weight <= 1.0e-14:

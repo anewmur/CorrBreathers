@@ -14,8 +14,7 @@ def create_initial_ensemble(
     covariance_psd_tolerance: float,
     covariance_negative_warning_tolerance: float,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Create initial displacements and velocities from explicit parameters."""
-
+    """Создаёт начальные смещения и скорости для ансамбля."""
     if zero_displacements:
         displacement_ensemble = np.zeros((ensemble_size, chain_length), dtype=float)
     else:
@@ -37,7 +36,7 @@ def create_initial_ensemble(
             covariance_negative_warning_tolerance,
         )
     else:
-        raise ValueError(f"Unknown initial_conditions.mode: {mode}")
+        raise ValueError(f"Неизвестный initial_conditions.mode: {mode}")
 
     velocity_ensemble = velocity_ensemble - np.mean(velocity_ensemble, axis=1, keepdims=True)
     return displacement_ensemble, velocity_ensemble
@@ -48,7 +47,7 @@ def sample_random_thermal_velocities(
     chain_length: int,
     thermal_std: float,
 ) -> np.ndarray:
-    """Sample independent Gaussian velocities for thermal-like initial data."""
+    """Генерирует независимые гауссовы скорости."""
     return np.random.normal(0.0, thermal_std, size=(ensemble_size, chain_length))
 
 
@@ -60,7 +59,7 @@ def sample_correlated_velocities_fft(
     covariance_psd_tolerance: float,
     covariance_negative_warning_tolerance: float,
 ) -> np.ndarray:
-    """Sample Gaussian velocities using FFT for circulant covariance."""
+    """Генерирует скорости через БПФ с циркулянтной ковариацией."""
     lag_index = np.arange(chain_length, dtype=float)
     lag_index = np.minimum(lag_index, chain_length - lag_index)
     correlation_values = amplitude * ((-1.0) ** lag_index) * np.exp(-alpha * lag_index)
@@ -84,7 +83,7 @@ def validate_and_prepare_spectrum(
     covariance_psd_tolerance: float,
     covariance_negative_warning_tolerance: float,
 ) -> np.ndarray:
-    """Validate and clip covariance spectrum for FFT-based Gaussian sampling."""
+    """Проверяет спектр плотности и обрезает малые отрицательные значения."""
     spectrum = np.real(np.fft.fft(correlation_values))
     minimum_spectrum_value = float(np.min(spectrum))
 
@@ -93,12 +92,12 @@ def validate_and_prepare_spectrum(
 
     if minimum_spectrum_value >= -covariance_negative_warning_tolerance:
         print(
-            "WARNING: initial covariance spectrum has tiny negative values; "
-            "they will be clipped to zero."
+            "ПРЕДУПРЕЖДЕНИЕ: в спектре ковариации есть малые отрицательные значения; "
+            "они обрезаны до нуля."
         )
         return np.clip(spectrum, a_min=0.0, a_max=None)
 
     raise ValueError(
-        "Initial covariance is not PSD in Fourier space. "
-        f"Minimum spectral value is {minimum_spectrum_value:.3e}."
+        "Спектральная плотность ковариации заметно отрицательна. "
+        f"Минимум спектра: {minimum_spectrum_value:.3e}."
     )
