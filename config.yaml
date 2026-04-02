@@ -1,19 +1,30 @@
 experiment:
-  output_dir: "results"
-  random_seed: 12345
-  ensemble_size: 200
-  save_every_steps: 20
-  total_steps: 20000
+  output_dir: "results"              # Каталог, куда записываются все результаты расчёта: json, npz, txt, png
+  random_seed: 12345                 # Начальное значение генератора случайных чисел для воспроизводимости эксперимента
+  ensemble_size: 200                 # Число независимых реализаций в ансамбле, по которым выполняется усреднение корреляций
+  save_every_steps: 10               # Сохранять диагностики и корреляционные профили каждые N шагов интегрирования
+  total_steps: 10000                 # Полное число шагов интегрирования по времени
 
 chain:
-  length: 256
-  mass: 1.0
-  stiffness: 1.0
-  beta: 0.2
-  dt: 0.01
+  length: 256                        # Число узлов в периодической цепочке
+  mass: 1.0                          # Масса одной частицы
+  stiffness: 1.0                     # Линейная жёсткость связи между соседними частицами
+  beta: 0.0                          # Коэффициент кубической нелинейности в силе β-FPU-цепочки
+  dt: 0.01                           # Шаг по времени для интегратора velocity-Verlet
+
+#initial_conditions:
+#  mode: "random_thermal"        # Режим задания начальных условий: "random_thermal" или "correlated_velocity"
+#  random_thermal_std: 1.0            # Среднеквадратичное отклонение скоростей в режиме "random_thermal"
+#  amplitude: 1.0                     # Амплитуда целевой начальной ковариации скоростей в режиме "correlated_velocity"
+#  alpha: 0.25                        # Параметр экспоненциального убывания начальной ковариации по лагу k
+#  zero_displacements: true           # Если true, все начальные смещения равны нулю
+#  covariance_psd_tolerance: 1.0e-10  # Численный допуск при проверке неотрицательности спектра заданной ковариации
+#  covariance_negative_warning_tolerance: 1.0e-8  # Порог, ниже которого отрицательные спектральные значения считаются численным шумом
+#  remove_center_of_mass_velocity: false  # Если true, из каждой реализации вычитается средняя скорость по узлам; это меняет исходную ковариацию
+
 
 initial_conditions:
-  mode: "correlated_velocity"
+  mode: "custom_covariance_profile"
   random_thermal_std: 1.0
   amplitude: 1.0
   alpha: 0.25
@@ -21,23 +32,25 @@ initial_conditions:
   covariance_psd_tolerance: 1.0e-10
   covariance_negative_warning_tolerance: 1.0e-8
   remove_center_of_mass_velocity: false
+  custom_nonnegative_profile: [1.0, -0.5]
 
 correlations:
-  max_lag: 40
-  localization_radius: 3
+  max_lag: 40                        # Максимальный лаг k, для которого считаются xi_k и kappa_k: от -max_lag до +max_lag
+  localization_radius: 3             # Радиус окрестности k = 0, внутри которой измеряется доля локализации профиля
 
 detector:
-  late_time_fraction: 0.5
-  max_width: 8.0
-  min_central_amplitude_ratio: 0.4
-  min_peak_to_background_ratio: 5.0
-  max_tail_fit_error: 0.25
-  min_tail_fit_lag: 4
-  profile_psd_tolerance: 1.0e-10
-  oscillatory_tail_preferred: true
+  late_time_fraction: 0.5            # Позднее временное окно начинается с этой доли полной длительности расчёта
+  max_width: 9.0                     # Максимально допустимая ширина локализованного профиля в late-window для эвристического кандидата
+  min_central_amplitude_ratio: 0.4   # Минимально допустимое отношение поздней центральной амплитуды к начальной
+  min_peak_to_background_ratio: 5.0  # Минимальный контраст главного спектрального пика к фону в late-window
+  max_tail_fit_error: 0.25           # Максимальная допустимая ошибка аппроксимации хвоста экспоненциальной или осциллирующей экспонентой
+  min_tail_fit_lag: 4                # Минимальный лаг, начиная с которого используется хвост профиля при фитировании
+  profile_psd_tolerance: 1.0e-10     # Численный допуск в проверке положительной определённости корреляционного профиля через матрицу Тёплица
+  oscillatory_tail_preferred: true   # Если true, при сравнении моделей хвоста предпочтение отдаётся знакопеременной экспоненте
 
 numerics:
-  max_relative_energy_drift_warning: 1.0e-3
+  max_relative_energy_drift_warning: 1.0e-3  # Порог предупреждения о слишком большом относительном дрейфе средней энергии ансамбля
 
 plots:
-  enabled: true
+  enabled: true                      # Если true, сохранять диагностические графики профилей, временных рядов и спектров
+  late_time_start_for_plateau: 25.0

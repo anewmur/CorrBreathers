@@ -1,4 +1,4 @@
-from __future__ import annotations
+
 
 import numpy as np
 
@@ -14,6 +14,7 @@ def create_initial_ensemble(
     covariance_psd_tolerance: float,
     covariance_negative_warning_tolerance: float,
     remove_center_of_mass_velocity: bool,
+    custom_nonnegative_profile: list[float] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Создаёт начальные смещения и скорости для ансамбля."""
     if zero_displacements:
@@ -36,6 +37,19 @@ def create_initial_ensemble(
             covariance_psd_tolerance,
             covariance_negative_warning_tolerance,
         )
+    elif mode == "custom_covariance_profile":
+        if custom_nonnegative_profile is None:
+            raise ValueError(
+                "Для initial_conditions.mode='custom_covariance_profile' "
+                "нужно задать initial_conditions.custom_nonnegative_profile."
+            )
+        velocity_ensemble = sample_custom_correlated_velocities_fft(
+            ensemble_size,
+            chain_length,
+            custom_nonnegative_profile,
+            covariance_psd_tolerance,
+            covariance_negative_warning_tolerance,
+        )
     else:
         raise ValueError(f"Неизвестный initial_conditions.mode: {mode}")
 
@@ -47,7 +61,6 @@ def create_initial_ensemble(
         )
 
     return displacement_ensemble, velocity_ensemble
-
 
 def validate_initial_covariance(
     velocity_ensemble: np.ndarray,
@@ -89,6 +102,50 @@ def sample_random_thermal_velocities(
     """Генерирует независимые гауссовы скорости."""
     return np.random.normal(0.0, thermal_std, size=(ensemble_size, chain_length))
 
+
+
+def build_circulant_profile_from_nonnegative_lags(
+    chain_length: int,
+    nonnegative_profile: list[float],
+) -> np.ndarray:
+    """Строит первый ряд циркулянтной ковариации по значениям для лагов 0, 1, 2, ..."""
+    correlation_values = np.zeros(chain_length, dtype=float)
+    max_defined_lag = min(len(nonnegative_profile) - 1, chain_length // 2)
+
+    for lag_index in range(max_defined_lag + 1):
+        value = float(nonnegative_profile[lag_index])
+        correlation_values[lag_index] = value
+        if lag_index != 0:
+            correlation_values[-lag_index] = value
+
+    return correlation_values
+
+
+def sample_custom_correlated_velocities_fft(
+    ensemble_size: int,
+    chain_length: int,
+    nonnegative_profile: list[float],
+    covariance_psd_tolerance: float,
+    covariance_negative_warning_tolerance: float,
+) -> np.ndarray:
+    """Генерирует скорости по явно заданному профилю kappa_k для неотрицательных лагов."""
+    correlation_values = build_circulant_profile_from_nonnegative_lags(
+        chain_length=chain_length,
+        nonnegative_profile=nonnegative_profile,
+    )
+
+    clipped_spectrum = validate_and_prepare_spectrum(
+        correlation_values=correlation_values,
+        covariance_psd_tolerance=covariance_psd_tolerance,
+        covariance_negative_warning_tolerance=covariance_negative_warning_tolerance,
+    )
+    filter_amplitudes = np.sqrt(np.maximum(clipped_spectrum, 0.0))
+
+    white_noise = np.random.normal(0.0, 1.0, size=(ensemble_size, chain_length))
+    white_noise_spectrum = np.fft.fft(white_noise, axis=1)
+    shaped_spectrum = white_noise_spectrum * filter_amplitudes[None, :]
+    sampled_velocities = np.real(np.fft.ifft(shaped_spectrum, axis=1))
+    return sampled_velocities
 
 def sample_correlated_velocities_fft(
     ensemble_size: int,

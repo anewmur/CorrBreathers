@@ -8,6 +8,7 @@ import numpy as np
 from detector import get_late_time_indices
 
 
+
 def save_diagnostic_plots(
     plots_enabled: bool,
     output_directory: Path,
@@ -21,6 +22,7 @@ def save_diagnostic_plots(
     kappa_central_amplitude_history: np.ndarray,
     detector_settings: dict,
     detector_result: dict,
+    late_time_start_for_plateau: float,
 ) -> None:
     """Сохраняет набор диагностических графиков."""
     if not plots_enabled:
@@ -84,6 +86,14 @@ def save_diagnostic_plots(
         "kappa_0(t)",
         "kappa_0",
     )
+    save_late_kappa_delta_time_series_plot(
+        output_path=output_directory / "kappa0_late_delta_time_series.png",
+        time_grid=time_grid,
+        series_values=kappa_central_amplitude_history,
+        late_time_start=late_time_start_for_plateau,
+        title="kappa_0(t) - kappa_0(infinity), late window",
+        y_label="delta kappa_0",
+    )
     save_late_spectrum_plot(
         output_directory / "kappa0_late_spectrum.png",
         time_grid,
@@ -130,6 +140,36 @@ def save_time_series_plot(
     """Сохраняет график временного ряда."""
     plt.figure(figsize=(7, 4))
     plt.plot(time_grid, series_values, linewidth=1.5)
+    plt.xlabel("время")
+    plt.ylabel(y_label)
+    plt.title(title)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150)
+    plt.close()
+
+
+def save_late_kappa_delta_time_series_plot(
+    output_path: Path,
+    time_grid: np.ndarray,
+    series_values: np.ndarray,
+    late_time_start: float,
+    title: str,
+    y_label: str,
+) -> None:
+    """Сохраняет график отклонения от позднего плато для kappa_0(t)."""
+    late_mask = time_grid >= float(late_time_start)
+    if not np.any(late_mask):
+        late_mask = np.ones_like(time_grid, dtype=bool)
+
+    late_time_grid = time_grid[late_mask]
+    late_series_values = series_values[late_mask]
+    plateau_value = float(np.mean(late_series_values))
+    delta_series_values = late_series_values - plateau_value
+
+    plt.figure(figsize=(7, 4))
+    plt.plot(late_time_grid, delta_series_values, linewidth=1.5)
+    plt.axhline(0.0, color="black", linestyle="--", linewidth=1.0)
     plt.xlabel("время")
     plt.ylabel(y_label)
     plt.title(title)

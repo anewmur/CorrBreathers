@@ -10,6 +10,7 @@ from correlations import (
     compute_localization_fraction,
 )
 from detector import evaluate_breather_candidate
+from detector_diagnostics import build_default_config, run_diagnostics
 from init_conditions import create_initial_ensemble, validate_initial_covariance
 from integrator import velocity_verlet_step
 from io_utils import (
@@ -36,7 +37,7 @@ def parse_experiment_config(config_path: Path) -> tuple[dict, dict, Path]:
         "plots": config["plots"],
         "numerics": config["numerics"],
     }
-    output_directory = ensure_output_directory(config)
+    output_directory = ensure_output_directory(config, config_path)
     return config, sections, output_directory
 
 
@@ -68,8 +69,17 @@ def prepare_simulation_parameters(sections: dict) -> dict:
     return parameters
 
 
-def create_starting_ensemble(parameters: dict, initial_conditions_settings: dict) -> tuple[np.ndarray, np.ndarray]:
+def create_starting_ensemble(
+    parameters: dict,
+    initial_conditions_settings: dict,
+) -> tuple[np.ndarray, np.ndarray]:
     """Создаёт начальный ансамбль смещений и скоростей."""
+    custom_nonnegative_profile_raw = initial_conditions_settings.get("custom_nonnegative_profile")
+    custom_nonnegative_profile: list[float] | None = None
+
+    if custom_nonnegative_profile_raw is not None:
+        custom_nonnegative_profile = list(custom_nonnegative_profile_raw)
+
     return create_initial_ensemble(
         ensemble_size=parameters["ensemble_size"],
         chain_length=parameters["chain_length"],
@@ -85,6 +95,7 @@ def create_starting_ensemble(parameters: dict, initial_conditions_settings: dict
         remove_center_of_mass_velocity=bool(
             initial_conditions_settings["remove_center_of_mass_velocity"]
         ),
+        custom_nonnegative_profile=custom_nonnegative_profile,
     )
 
 
@@ -257,6 +268,67 @@ def pack_histories(histories: dict) -> dict:
     }
 
 
+def print_detector_diagnosis(detector_result: dict, detector_settings: dict) -> None:
+    """Печатает подробный диагноз по xi и kappa с указанием проваленных критериев."""
+    print()
+    print("ИТОГ ДЕТЕКТОРА")
+    print(f"heuristic_candidate = {detector_result['heuristic_candidate']}")
+    print()
+
+    max_width = float(detector_settings["max_width"])
+    min_central_ratio = float(detector_settings["min_central_amplitude_ratio"])
+    min_peak_ratio = float(detector_settings["min_peak_to_background_ratio"])
+    max_tail_fit_error = float(detector_settings["max_tail_fit_error"])
+
+    for profile_name in ("xi", "kappa"):
+        metrics = detector_result[f"{profile_name}_metrics"]
+
+        passes_psd_check = bool(metrics["passes_psd_check"])
+        final_width = float(metrics["final_width"])
+        max_late_width = float(metrics["max_late_width"])
+        central_ratio = float(metrics["late_to_initial_central_amplitude_ratio"])
+        dominant_frequency = float(metrics["dominant_frequency"])
+        dominant_peak_ratio = float(metrics["dominant_peak_ratio"])
+        tail_fit_error = float(metrics["tail_fit_error"])
+        tail_model = str(metrics["tail_fit_model"])
+        mean_late_localization_fraction = float(metrics["mean_late_localization_fraction"])
+        minimum_late_spectrum_value = float(
+            metrics["minimum_toeplitz_eigenvalue_on_late_profile"]
+        )
+
+        print(f"[{profile_name}]")
+        print(f"  passes_psd_check                 = {passes_psd_check}")
+        print(f"  minimum_late_spectrum_value      = {minimum_late_spectrum_value:.6e}")
+        print(f"  final_width                      = {final_width:.6f}   (threshold <= {max_width:.6f})")
+        print(f"  max_late_width                   = {max_late_width:.6f}")
+        print(f"  late_to_initial_central_ratio    = {central_ratio:.6f}   (threshold >= {min_central_ratio:.6f})")
+        print(f"  dominant_frequency               = {dominant_frequency:.6f}")
+        print(f"  dominant_peak_ratio              = {dominant_peak_ratio:.6f}   (threshold >= {min_peak_ratio:.6f})")
+        print(f"  tail_fit_error                   = {tail_fit_error:.6f}   (threshold <= {max_tail_fit_error:.6f})")
+        print(f"  tail_model                       = {tail_model}")
+        print(f"  mean_late_localization_fraction  = {mean_late_localization_fraction:.6f}")
+
+        failed_conditions: list[str] = []
+        if not passes_psd_check:
+            failed_conditions.append("нарушена допустимость корреляционного профиля")
+        if final_width > max_width:
+            failed_conditions.append("слишком большая финальная ширина")
+        if central_ratio < min_central_ratio:
+            failed_conditions.append("слишком сильное падение центральной амплитуды")
+        if dominant_peak_ratio < min_peak_ratio:
+            failed_conditions.append("слишком слабая почти-периодичность")
+        if tail_fit_error > max_tail_fit_error:
+            failed_conditions.append("хвост плохо описывается экспоненциальной моделью")
+
+        if failed_conditions:
+            print("  verdict                          = FAIL")
+            print("  next_step                        = " + "; ".join(failed_conditions))
+        else:
+            print("  verdict                          = PASS")
+
+        print()
+
+
 def run_detector(sections: dict, parameters: dict, packed_histories: dict) -> dict:
     """Запускает детектор на сохранённой истории профилей."""
     return evaluate_breather_candidate(
@@ -314,14 +386,31 @@ def save_results(
         kappa_central_amplitude_history=packed_histories["kappa_central_array"],
         detector_settings=sections["detector"],
         detector_result=detector_result,
+        late_time_start_for_plateau=float(sections["plots"]["late_time_start_for_plateau"]),
     )
 
 
+def run_postprocess_diagnostics(output_directory: Path) -> None:
+    """Запускает detector_diagnostics для только что сохранённой папки результата."""
+    npz_path = output_directory / "time_series.npz"
+    diagnostics_output_directory = output_directory / "detector_diagnostics"
+
+    if not npz_path.exists():
+        raise FileNotFoundError(f"Не найден файл для постобработки: {npz_path}")
+
+    diagnostics_config = build_default_config(
+        npz_path=npz_path,
+        output_directory=diagnostics_output_directory,
+    )
+    run_diagnostics(diagnostics_config)
+
+
 def print_final_summary(output_directory: Path, detector_result: dict) -> None:
-    """Печатает итоговую сводку по завершённому расчёту."""
+    """Печатает краткую итоговую сводку по завершённому расчёту."""
     print("Моделирование завершено.")
-    print(f"Эвристический кандидат бризера: {detector_result['heuristic_candidate']}")
+    print(f"heuristic_candidate = {detector_result['heuristic_candidate']}")
     print(f"Результаты записаны в: {output_directory}")
+    print(f"Постобработка записана в: {output_directory / 'detector_diagnostics'}")
 
 
 def run_single_experiment(config_path: Path) -> None:
@@ -334,19 +423,36 @@ def run_single_experiment(config_path: Path) -> None:
     )
 
     initial_conditions_settings = sections["initial_conditions"]
-    lag_absolute = np.abs(parameters["lags"]).astype(float)
+    lag_absolute = np.abs(parameters["lags"]).astype(int)
     initial_mode = str(initial_conditions_settings["mode"])
 
     if initial_mode == "correlated_velocity":
         target_profile = (
             float(initial_conditions_settings["amplitude"])
             * ((-1.0) ** lag_absolute)
-            * np.exp(-float(initial_conditions_settings["alpha"]) * lag_absolute)
+            * np.exp(-float(initial_conditions_settings["alpha"]) * lag_absolute.astype(float))
         )
     elif initial_mode == "random_thermal":
         target_profile = np.zeros_like(lag_absolute, dtype=float)
-        zero_lag_mask = lag_absolute == 0.0
+        zero_lag_mask = lag_absolute == 0
         target_profile[zero_lag_mask] = float(initial_conditions_settings["random_thermal_std"]) ** 2
+    elif initial_mode == "custom_covariance_profile":
+        custom_nonnegative_profile_raw = initial_conditions_settings.get("custom_nonnegative_profile")
+        if custom_nonnegative_profile_raw is None:
+            raise ValueError(
+                "Для initial_conditions.mode='custom_covariance_profile' "
+                "нужно задать initial_conditions.custom_nonnegative_profile."
+            )
+
+        custom_nonnegative_profile = list(custom_nonnegative_profile_raw)
+        target_profile = np.zeros_like(lag_absolute, dtype=float)
+
+        for lag_index in range(target_profile.size):
+            absolute_lag = int(lag_absolute[lag_index])
+            if absolute_lag < len(custom_nonnegative_profile):
+                target_profile[lag_index] = float(custom_nonnegative_profile[absolute_lag])
+            else:
+                target_profile[lag_index] = 0.0
     else:
         raise ValueError(f"Неизвестный initial_conditions.mode: {initial_mode}")
 
@@ -363,6 +469,7 @@ def run_single_experiment(config_path: Path) -> None:
 
     _, _, histories = run_integration_loop(parameters, displacement_ensemble, velocity_ensemble)
     packed_histories = pack_histories(histories)
+
     detector_result = run_detector(sections, parameters, packed_histories)
     detector_result["numerics"] = {
         "final_relative_energy_drift": float(packed_histories["relative_energy_drift_array"][-1]),
@@ -381,6 +488,7 @@ def run_single_experiment(config_path: Path) -> None:
         "max_abs_error": float(initial_covariance_validation["max_abs_error"]),
         "relative_error": float(initial_covariance_validation["relative_error"]),
     }
+
     save_results(
         config_path,
         config,
@@ -390,12 +498,23 @@ def run_single_experiment(config_path: Path) -> None:
         packed_histories,
         detector_result,
     )
+    run_postprocess_diagnostics(output_directory)
     print_final_summary(output_directory, detector_result)
+    print_detector_diagnosis(detector_result, sections["detector"])
+
+
+def resolve_default_config_path() -> Path:
+    """Возвращает путь к config.yaml рядом с main.py."""
+    return Path(__file__).resolve().parent / "config.yaml"
 
 
 def main() -> None:
-    """Вызывает расчёт с конфигурацией по умолчанию."""
-    run_single_experiment(Path("config.yaml"))
+    """Запускает расчёт с config.yaml рядом с main.py."""
+    config_path = resolve_default_config_path()
+    if not config_path.exists():
+        raise FileNotFoundError(f"Не найден файл конфигурации: {config_path}")
+
+    run_single_experiment(config_path)
 
 
 if __name__ == "__main__":
