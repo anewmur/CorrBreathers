@@ -79,5 +79,5 @@ def show_kappa_profile_animation(
 
 if __name__ == "__main__":
     show_kappa_profile_animation(
-        Path("results") / "T200_beta0_ens200_ini-cov_001" / "time_series.npz"
+        Path("results") / "T100_beta02_ens200_ini-cov_001" / "time_series.npz"
     )
