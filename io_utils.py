@@ -1,4 +1,3 @@
-
 import json
 import shutil
 from pathlib import Path
@@ -70,6 +69,7 @@ def format_initial_mode_label(initial_mode: str) -> str:
         "correlated_velocity": "ini-cor",
         "random_thermal": "ini-ran",
         "custom_covariance_profile": "ini-cov",
+        "localized_custom_covariance": "ini-loc",
     }
     if initial_mode not in mode_labels:
         raise ValueError(f"Неизвестный режим initial_conditions.mode: {initial_mode}")

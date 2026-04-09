@@ -1,4 +1,4 @@
-
+from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,6 +42,8 @@ class ModeMeasurement:
     wave_number: float
     measured_frequency: float
     dominant_peak_ratio: float
+    early_frequency: float
+    early_peak_ratio: float
     projection_norm: float
     minimum_spectrum_value: float
 
@@ -65,7 +67,6 @@ class CorrelationModeExperiment:
             series_payload[amplitude_key] = {}
 
             for mode_index in self.config.mode_indices:
-                print(f"amplitude={amplitude} , mode_index={mode_index}")
                 measurement, time_grid, projection_series = self._run_single_mode(amplitude, mode_index)
                 all_measurements.append(measurement)
                 series_payload[amplitude_key][str(mode_index)] = projection_series.tolist()
@@ -193,11 +194,27 @@ class CorrelationModeExperiment:
 
         positive_frequencies = frequency_grid[1:]
         positive_amplitudes = amplitude_spectrum[1:]
+
         peak_index = int(np.argmax(positive_amplitudes))
-        dominant_frequency = float(positive_frequencies[peak_index])
         dominant_amplitude = float(positive_amplitudes[peak_index])
         background = float(np.median(positive_amplitudes) + 1.0e-14)
         dominant_peak_ratio = dominant_amplitude / background
+
+        # Параболическая интерполяция пика
+        if 0 < peak_index < positive_amplitudes.size - 1:
+            alpha_left = float(positive_amplitudes[peak_index - 1])
+            alpha_center = float(positive_amplitudes[peak_index])
+            alpha_right = float(positive_amplitudes[peak_index + 1])
+            denominator_interp = alpha_left - 2.0 * alpha_center + alpha_right
+            if abs(denominator_interp) > 1.0e-14:
+                delta = 0.5 * (alpha_left - alpha_right) / denominator_interp
+                freq_step = float(positive_frequencies[1] - positive_frequencies[0])
+                dominant_frequency = float(positive_frequencies[peak_index]) + delta * freq_step
+            else:
+                dominant_frequency = float(positive_frequencies[peak_index])
+        else:
+            dominant_frequency = float(positive_frequencies[peak_index])
+
         return dominant_frequency, dominant_peak_ratio
 
     def _save_single_series_plot(
@@ -303,7 +320,6 @@ def load_dispersion_run_config(
     max_lag: int | None = None,
     spatial_averaging: bool | None = None,
     random_seed: int | None = None,
-    beta: float | None = None,
 ) -> DispersionRunConfig:
     config_path_obj = Path(config_path)
     raw_config = read_config(config_path_obj)
@@ -314,9 +330,9 @@ def load_dispersion_run_config(
     initial_settings = raw_config["initial_conditions"]
 
     if amplitudes is None:
-        raise ValueError("Необходим список амплитуд")
+        amplitudes = [0.02, 0.05, 0.1, 0.2]
     if mode_indices is None:
-        raise ValueError("Необходим список мод")
+        mode_indices = list(range(1, 17))
 
     effective_total_steps = int(
         experiment_settings["total_steps"] if total_steps is None else total_steps
@@ -335,9 +351,6 @@ def load_dispersion_run_config(
     effective_random_seed = int(
         experiment_settings["random_seed"] if random_seed is None else random_seed
     )
-    effective_beta = float(
-        chain_settings["beta"] if beta is None else beta
-    )
 
     return DispersionRunConfig(
         config_path=config_path_obj,
@@ -350,7 +363,7 @@ def load_dispersion_run_config(
         chain_length=int(chain_settings["length"]),
         mass=float(chain_settings["mass"]),
         stiffness=float(chain_settings["stiffness"]),
-        beta=effective_beta,
+        beta=float(chain_settings["beta"]),
         max_lag=effective_max_lag,
         ensemble_size=int(experiment_settings["ensemble_size"]),
         random_seed=effective_random_seed,
@@ -365,6 +378,7 @@ def load_dispersion_run_config(
         ),
     )
 
+
 def main(
     config_path: str | Path = "config.yaml",
     output_directory: str | Path = "dispersion_results",
@@ -375,8 +389,7 @@ def main(
     background_value: float = 1.0,
     max_lag: int | None = None,
     spatial_averaging: bool | None = None,
-    random_seed: int | None = None,
-    beta: float | None = None,
+    random_seed: int | None = 42,
 ) -> None:
     config = load_dispersion_run_config(
         config_path=config_path,
@@ -389,45 +402,11 @@ def main(
         max_lag=max_lag,
         spatial_averaging=spatial_averaging,
         random_seed=random_seed,
-        beta=beta,
     )
     np.random.seed(config.random_seed)
     experiment = CorrelationModeExperiment(config)
     experiment.run()
 
-# if __name__ == "__main__":
-#     main(
-#         config_path="config.yaml",
-#         # Путь к yaml-конфигу основного расчёта; из него читаются N, dt, beta, ensemble_size и остальные базовые параметры
-#         output_directory="dispersion_results",  # Папка, куда будут сохранены csv/json и графики дисперсионки
-#         amplitudes=[0.05, 0.1, 0.3],
-#         # Список амплитуд малой моды в начальном профиле ковариаций kappa_k(0) = background_value + A cos(qk); если None, берутся значения по умолчанию
-#         mode_indices = list(range(1, 128)),
-#         # Список номеров мод m; для каждой моды берётся q = 2πm/N и строится одна точка дисперсионной кривой
-#         total_steps=100000,  # Полное число шагов интегрирования; если None, берётся из config.yaml
-#         save_every_steps=10,  # Как часто сохранять kappa_k(t) и проекцию A_q(t); если None, берётся из config.yaml
-#         background_value=1.0,
-#         # Однородный фоновый уровень начальной ковариации скоростей; при A=0 имеем kappa_k(0) = const
-#         max_lag=None,
-#         # Максимальный лаг k, на котором считаются kappa_k(t) и делается проекция на cos(qk); если None, берётся из config.yaml
-#         spatial_averaging=None,  # Усреднять ли корреляции по всей цепочке; если None, берётся из config.yaml
-#         random_seed=None,  # Начальное зерно генератора случайных чисел; если None, берётся из config.yaml
-#     )
-
 
 if __name__ == "__main__":
-    import time
-    print("начали расчёт: нелинейный сдвиг")
-    t0 = time.perf_counter()
-    main(
-        config_path="config.yaml",
-        output_directory="nonlinear_shift_fine",
-        amplitudes=[0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.11, 0.12],
-        mode_indices=[127],
-        total_steps=100000,
-        save_every_steps=10,
-        background_value=1.0,
-        beta=0.2,
-    )
-    elapsed = time.perf_counter() - t0
-    print(f"Расчёт занял: {elapsed/60:.1f} мин")
+    main()
