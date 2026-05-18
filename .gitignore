@@ -1,0 +1,8 @@
+﻿__pycache__/
+dispersion_bench/
+dispersion_beta0/
+dispersion_results/
+nonlinear_shift_fine/
+nonlinear_shift_multi/
+nonlinear_shift_results/
+results/

@@ -67,6 +67,7 @@ class CorrelationModeExperiment:
             series_payload[amplitude_key] = {}
 
             for mode_index in self.config.mode_indices:
+                print(f"amplitude={amplitude} , mode_index={mode_index}")
                 measurement, time_grid, projection_series = self._run_single_mode(amplitude, mode_index)
                 all_measurements.append(measurement)
                 series_payload[amplitude_key][str(mode_index)] = projection_series.tolist()
@@ -122,7 +123,8 @@ class CorrelationModeExperiment:
 
         time_grid = np.asarray(saved_times, dtype=float)
         projection_series = np.asarray(saved_projections, dtype=float)
-        measured_frequency, dominant_peak_ratio = self._measure_frequency(time_grid, projection_series)
+        measured_frequency, dominant_peak_ratio = self._measure_frequency(time_grid, projection_series, fraction=1.0)
+        early_frequency, early_peak_ratio = self._measure_frequency(time_grid, projection_series, fraction=0.2)
 
         measurement = ModeMeasurement(
             amplitude=float(amplitude),
@@ -130,6 +132,8 @@ class CorrelationModeExperiment:
             wave_number=float(wave_number),
             measured_frequency=measured_frequency,
             dominant_peak_ratio=dominant_peak_ratio,
+            early_frequency=early_frequency,
+            early_peak_ratio=early_peak_ratio,
             projection_norm=float(np.linalg.norm(projection_series)),
             minimum_spectrum_value=float(minimum_spectrum_value),
         )
@@ -178,12 +182,22 @@ class CorrelationModeExperiment:
             f"minimum={minimum_spectrum_value:.3e}"
         )
 
-    def _measure_frequency(self, time_grid: np.ndarray, series: np.ndarray) -> tuple[float, float]:
+
+    def _measure_frequency(
+        self,
+        time_grid: np.ndarray,
+        series: np.ndarray,
+        fraction: float = 1.0,
+    ) -> tuple[float, float]:
         if time_grid.size < 4:
             return 0.0, 0.0
 
-        detrended_series = series - float(np.mean(series))
-        average_time_step = float(np.mean(np.diff(time_grid)))
+        n_use = max(4, int(len(series) * fraction))
+        working_series = series[:n_use]
+        working_time = time_grid[:n_use]
+
+        detrended_series = working_series - float(np.mean(working_series))
+        average_time_step = float(np.mean(np.diff(working_time)))
         if average_time_step <= 0.0:
             return 0.0, 0.0
 
@@ -263,17 +277,17 @@ class CorrelationModeExperiment:
         output_path = self.config.output_directory / "dispersion_measurements.csv"
         with output_path.open("w", encoding="utf-8") as stream:
             stream.write(
-                "amplitude,mode_index,wave_number,measured_frequency,dominant_peak_ratio,projection_norm,minimum_spectrum_value\n"
+                "amplitude,mode_index,wave_number,"
+                "measured_frequency,dominant_peak_ratio,"
+                "early_frequency,early_peak_ratio,"
+                "projection_norm,minimum_spectrum_value\n"
             )
-            for measurement in measurements:
+            for m in measurements:
                 stream.write(
-                    f"{measurement.amplitude},"
-                    f"{measurement.mode_index},"
-                    f"{measurement.wave_number},"
-                    f"{measurement.measured_frequency},"
-                    f"{measurement.dominant_peak_ratio},"
-                    f"{measurement.projection_norm},"
-                    f"{measurement.minimum_spectrum_value}\n"
+                    f"{m.amplitude},{m.mode_index},{m.wave_number},"
+                    f"{m.measured_frequency},{m.dominant_peak_ratio},"
+                    f"{m.early_frequency},{m.early_peak_ratio},"
+                    f"{m.projection_norm},{m.minimum_spectrum_value}\n"
                 )
 
     def _save_measurements_json(
@@ -285,19 +299,22 @@ class CorrelationModeExperiment:
             "config_path": str(self.config.config_path),
             "output_directory": str(self.config.output_directory),
             "background_value": self.config.background_value,
+            "beta": self.config.beta,
             "amplitudes": self.config.amplitudes,
             "mode_indices": self.config.mode_indices,
             "measurements": [
                 {
-                    "amplitude": measurement.amplitude,
-                    "mode_index": measurement.mode_index,
-                    "wave_number": measurement.wave_number,
-                    "measured_frequency": measurement.measured_frequency,
-                    "dominant_peak_ratio": measurement.dominant_peak_ratio,
-                    "projection_norm": measurement.projection_norm,
-                    "minimum_spectrum_value": measurement.minimum_spectrum_value,
+                    "amplitude": m.amplitude,
+                    "mode_index": m.mode_index,
+                    "wave_number": m.wave_number,
+                    "measured_frequency": m.measured_frequency,
+                    "dominant_peak_ratio": m.dominant_peak_ratio,
+                    "early_frequency": m.early_frequency,
+                    "early_peak_ratio": m.early_peak_ratio,
+                    "projection_norm": m.projection_norm,
+                    "minimum_spectrum_value": m.minimum_spectrum_value,
                 }
-                for measurement in measurements
+                for m in measurements
             ],
             "projection_series": series_payload,
         }
@@ -320,6 +337,7 @@ def load_dispersion_run_config(
     max_lag: int | None = None,
     spatial_averaging: bool | None = None,
     random_seed: int | None = None,
+    beta: float | None = None,
 ) -> DispersionRunConfig:
     config_path_obj = Path(config_path)
     raw_config = read_config(config_path_obj)
@@ -351,6 +369,9 @@ def load_dispersion_run_config(
     effective_random_seed = int(
         experiment_settings["random_seed"] if random_seed is None else random_seed
     )
+    effective_beta = float(
+        chain_settings["beta"] if beta is None else beta
+    )
 
     return DispersionRunConfig(
         config_path=config_path_obj,
@@ -363,7 +384,7 @@ def load_dispersion_run_config(
         chain_length=int(chain_settings["length"]),
         mass=float(chain_settings["mass"]),
         stiffness=float(chain_settings["stiffness"]),
-        beta=float(chain_settings["beta"]),
+        beta=effective_beta,
         max_lag=effective_max_lag,
         ensemble_size=int(experiment_settings["ensemble_size"]),
         random_seed=effective_random_seed,
@@ -389,7 +410,8 @@ def main(
     background_value: float = 1.0,
     max_lag: int | None = None,
     spatial_averaging: bool | None = None,
-    random_seed: int | None = 42,
+    random_seed: int | None = None,
+    beta: float | None = None,
 ) -> None:
     config = load_dispersion_run_config(
         config_path=config_path,
@@ -402,6 +424,7 @@ def main(
         max_lag=max_lag,
         spatial_averaging=spatial_averaging,
         random_seed=random_seed,
+        beta=beta,
     )
     np.random.seed(config.random_seed)
     experiment = CorrelationModeExperiment(config)
@@ -409,4 +432,18 @@ def main(
 
 
 if __name__ == "__main__":
-    main()
+    import time
+    print("начали расчёт: нелинейный сдвиг, несколько мод")
+    t0 = time.perf_counter()
+    main(
+        config_path="config.yaml",
+        output_directory="nonlinear_shift_multi",
+        amplitudes=[0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1],
+        mode_indices=[64, 80, 96, 112, 120, 125, 127],
+        total_steps=100000,
+        save_every_steps=10,
+        background_value=1.0,
+        beta=0.2,
+    )
+    elapsed = time.perf_counter() - t0
+    print(f"Расчёт занял: {elapsed/3600:.1f} ч")
